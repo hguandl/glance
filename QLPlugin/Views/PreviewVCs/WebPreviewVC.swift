@@ -46,7 +46,7 @@ class WebPreviewVC: NSViewController, PreviewVC {
 	}
 
 	private func loadPreview() {
-		let webView = WebView(frame: view.bounds)
+		let webView = WKWebView(frame: view.bounds)
 		webView.autoresizingMask = [.height, .width]
 
 		view.addSubview(webView)
@@ -58,7 +58,7 @@ class WebPreviewVC: NSViewController, PreviewVC {
 			.map { $0.getHTML() }
 			.joined(separator: "\n")
 
-		webView.mainFrame.loadHTMLString("""
+		webView.loadHTMLString("""
 		<!DOCTYPE html>
 		<html>
 			<head>
