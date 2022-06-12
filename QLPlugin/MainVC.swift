@@ -19,8 +19,6 @@ class MainVC: NSViewController, QLPreviewingController {
 	/// Max size of files to render
 	let maxFileSize = 10_000_000 // 10 MB
 
-	let stats = Stats()
-
 	override var nibName: NSNib.Name? {
 		NSNib.Name("MainVC")
 	}
@@ -115,9 +113,6 @@ class MainVC: NSViewController, QLPreviewingController {
 			previewVC.view.autoresizingMask = [.height, .width]
 			previewVC.view.frame = view.bounds
 			view.addSubview(previewVC.view)
-
-			// Update stats
-			stats.increaseStatsCounts(fileExtension: file.url.pathExtension)
 		} else {
 			os_log(
 				"Skipping preview for file %{public}s: File type not supported",
