@@ -80,16 +80,12 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: 'Checkout'
-        if: env.HAVE_NOTARY_IDENTITY == 'true'
-        uses: actions/checkout@v3
-
-      - name: 'Setup build environment'
+      - name: 'Setup tag information'
         run: |
-          GIT_TAG=$(git describe --tags --abbrev=0)
+          GIT_TAG=${GITHUB_REF:10}
           echo "TAG_NAME=${GIT_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=Glance-${GIT_TAG:1}" >> $GITHUB_ENV
-          echo "ARTIFACT_PKG=${ARTIFACT_NAME}.dmg" >> $GITHUB_ENV
+          echo "ARTIFACT_PKG=Glance-${GIT_TAG:1}.dmg" >> $GITHUB_ENV
 
       - name: 'Download artifact'
         if: env.HAVE_NOTARY_IDENTITY == 'true'
