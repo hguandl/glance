@@ -1,0 +1,121 @@
+name: 'BUILD'
+
+on:
+  push:
+    paths-ignore: ['**.md']
+    branches:
+      - master
+      - ci
+    tags: ['*']
+  pull_request:
+    paths-ignore: ['**.md']
+    branches: [master]
+
+jobs:
+  macos_build:
+    name: '01 - Build app'
+    runs-on: [macos-12]
+    env:
+      HAVE_CODESIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY != '' && secrets.SIGN_CERT_P12 != '' }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: 'glance'
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v3
+        with:
+          path: 'glance'
+          fetch-depth: 0
+
+      - name: 'Setup build environment'
+        run: |
+          GIT_TAG=$(git describe --tags)
+          echo "ARTIFACT_NAME=Glance-${GIT_TAG:1}" >> $GITHUB_ENV
+          echo "ARTIFACT_PKG=${ARTIFACT_NAME}.dmg" >> $GITHUB_ENV
+
+      - name: 'Install Developer ID Certificate'
+        if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
+        uses: apple-actions/import-codesign-certs@v1
+        with:
+          p12-file-base64: ${{ secrets.SIGN_CERT_P12 }}
+          p12-password: ${{ secrets.SIGN_CERT_PASSWD }}
+
+      - name: 'Build Glance'
+        run: xcodebuild ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO -configuration Release -scheme Glance -derivedDataPath "DerivedData"
+
+      - name: 'Sign app'
+        if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
+        run: codesign --force --deep --options runtime --timestamp --sign "$secret.SIGN_IDENTITY" DerivedData/Build/Products/Release/Glance.app
+
+      - name: 'Create build artifact'
+        if: ${{ success() && (github.event_name != 'pull_request') }}
+        run: |
+          mkdir build
+          mv DerivedData/Build/Products/Release/Glance.app build
+          ln -s /Applications build
+          hdiutil create -volname "$ARTIFACT_NAME" -srcfolder build -ov -format UDBZ "$ARTIFACT_PKG"
+          codesign --sign "$secret.SIGN_IDENTITY" --timestamp "$ARTIFACT_PKG"
+
+      - name: 'Upload build Artifact'
+        if: ${{ success() && (github.event_name != 'pull_request') }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: '${{ env.ARTIFACT_NAME }}'
+          path: '${{ github.workspace }}/glance/${{ env.ARTIFACT_PKG }}'
+
+  macos_release:
+    name: '02 - Release notarized image'
+    runs-on: [macos-12]
+    needs: [macos_build]
+    env:
+      HAVE_NOTARY_IDENTITY: ${{ secrets.NOTARY_AAPL_ID != '' && secrets.NOTARY_PASSWD != '' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 'Checkout'
+        if: env.HAVE_NOTARY_IDENTITY == 'true'
+        uses: actions/checkout@v3
+
+      - name: 'Setup build environment'
+        run: |
+          GIT_TAG=$(git describe --tags --abbrev=0)
+          echo "TAG_NAME=${GIT_TAG}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=Glance-${GIT_TAG:1}" >> $GITHUB_ENV
+          echo "ARTIFACT_PKG=${ARTIFACT_NAME}.dmg" >> $GITHUB_ENV
+
+      - name: 'Download artifact'
+        if: env.HAVE_NOTARY_IDENTITY == 'true'
+        uses: actions/download-artifact@v3
+        with:
+          name: '${{ env.ARTIFACT_NAME }}'
+
+      - name: 'Verify artifact'
+        if: env.HAVE_NOTARY_IDENTITY == 'true'
+        run: |
+          hdiutil verify $ARTIFACT_PKG
+          codesign --verify $ARTIFACT_PKG
+
+      - name: 'Notarize artifact'
+        if: env.HAVE_NOTARY_IDENTITY == 'true'
+        run: |
+          xcrun notarytool submit --apple-id "$secret.NOTARY_AAPL_ID" --password "$secret.NOTARY_PASSWD" --wait $ARTIFACT_PKG
+          xcrun stapler staple $ARTIFACT_PKG
+
+      - name: 'Upload build artifact'
+        if: env.HAVE_NOTARY_IDENTITY == 'true'
+        uses: actions/upload-artifact@v3
+        with:
+          name: '${{ env.ARTIFACT_NAME }}-notarized'
+          path: '${{ github.workspace }}/${{ env.ARTIFACT_PKG }}'
+
+      - name: Upload image to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: '${{ github.workspace }}/${{ env.ARTIFACT_PKG }}'
+          file_glob: false
+          tag: ${{ env.TAG_NAME }}
+          overwrite: true

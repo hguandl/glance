@@ -1,3 +1,7 @@
+# CI output
+build/
+DerivedData/
+
 # Xcode
 project.xcworkspace/
 xcuserdata/
