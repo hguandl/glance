@@ -32,7 +32,7 @@ jobs:
         run: |
           GIT_TAG=$(git describe --tags)
           echo "ARTIFACT_NAME=Glance-${GIT_TAG:1}" >> $GITHUB_ENV
-          echo "ARTIFACT_PKG=${ARTIFACT_NAME}.dmg" >> $GITHUB_ENV
+          echo "ARTIFACT_PKG=Glance-${GIT_TAG:1}.dmg" >> $GITHUB_ENV
 
       - name: 'Install Developer ID Certificate'
         if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
@@ -55,6 +55,11 @@ jobs:
           mv DerivedData/Build/Products/Release/Glance.app build
           ln -s /Applications build
           hdiutil create -volname "$ARTIFACT_NAME" -srcfolder build -ov -format UDBZ "$ARTIFACT_PKG"
+          codesign --sign "$secret.SIGN_IDENTITY" --timestamp "$ARTIFACT_PKG"
+
+      - name: 'Sign image'
+        if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
+        run: |
           codesign --sign "$secret.SIGN_IDENTITY" --timestamp "$ARTIFACT_PKG"
 
       - name: 'Upload build Artifact'
