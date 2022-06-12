@@ -17,7 +17,7 @@ jobs:
     runs-on: [macos-12]
     env:
       HAVE_CODESIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY != '' && secrets.SIGN_CERT_P12 != '' }}
-      CODESIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
+      IS_SIGNING_BUILD: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' }}
     defaults:
       run:
         shell: bash
@@ -36,7 +36,7 @@ jobs:
           echo "ARTIFACT_PKG=Glance-${GIT_TAG:1}.dmg" >> $GITHUB_ENV
 
       - name: 'Install Developer ID Certificate'
-        if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
+        if: ${{ env.HAVE_CODESIGN_IDENTITY == 'true' && env.IS_SIGNING_BUILD == 'true' }}
         uses: apple-actions/import-codesign-certs@v1
         with:
           p12-file-base64: ${{ secrets.SIGN_CERT_P12 }}
@@ -46,7 +46,9 @@ jobs:
         run: xcodebuild ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO -configuration Release -scheme Glance -derivedDataPath "DerivedData"
 
       - name: 'Sign app'
-        if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
+        if: ${{ env.HAVE_CODESIGN_IDENTITY == 'true' && env.IS_SIGNING_BUILD == 'true' }}
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
         run: codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" DerivedData/Build/Products/Release/Glance.app
 
       - name: 'Create app image'
@@ -58,7 +60,9 @@ jobs:
           hdiutil create -volname "$ARTIFACT_NAME" -srcfolder build -ov -format UDBZ "$ARTIFACT_PKG"
 
       - name: 'Sign image'
-        if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
+        if: ${{ env.HAVE_CODESIGN_IDENTITY == 'true' && env.IS_SIGNING_BUILD == 'true' }}
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
         run: |
           codesign --sign "$CODESIGN_IDENTITY" --timestamp "$ARTIFACT_PKG"
 
@@ -74,8 +78,8 @@ jobs:
     runs-on: [macos-12]
     needs: [macos_build]
     env:
-      HAVE_NOTARY_IDENTITY: ${{ secrets.NOTARY_AAPL_ID != '' && secrets.NOTARY_PASSWD != '' }}
-    if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' }}
+      HAVE_NOTARY_IDENTITY: ${{ secrets.NOTARY_AAPL_ID != '' && secrets.NOTARY_PASSWD != '' && secrets.SIGN_IDENTITY != '' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_NOTARY_IDENTITY == 'true' }}
     defaults:
       run:
         shell: bash
@@ -88,28 +92,25 @@ jobs:
           echo "ARTIFACT_PKG=Glance-${GIT_TAG:1}.dmg" >> $GITHUB_ENV
 
       - name: 'Download artifact'
-        if: env.HAVE_NOTARY_IDENTITY == 'true'
         uses: actions/download-artifact@v3
         with:
           name: '${{ env.ARTIFACT_NAME }}'
 
       - name: 'Verify image'
-        if: env.HAVE_NOTARY_IDENTITY == 'true'
         run: |
           hdiutil verify $ARTIFACT_PKG
           codesign --verify $ARTIFACT_PKG
 
       - name: 'Notarize image'
-        if: env.HAVE_NOTARY_IDENTITY == 'true'
         env:
           NOTARY_USER: ${{ secrets.NOTARY_AAPL_ID }}
           NOTARY_PASSWD: ${{ secrets.NOTARY_PASSWD }}
+          NOTARY_TEAM: ${{ secrets.SIGN_IDENTITY }}
         run: |
-          xcrun notarytool submit --apple-id "$NOTARY_USER" --password "$NOTARY_PASSWD" --wait $ARTIFACT_PKG
+          xcrun notarytool submit --apple-id "$NOTARY_USER" --password "$NOTARY_PASSWD" --team-id "$NOTARY_TEAM" --wait $ARTIFACT_PKG
           xcrun stapler staple $ARTIFACT_PKG
 
       - name: 'Upload build artifact'
-        if: env.HAVE_NOTARY_IDENTITY == 'true'
         uses: actions/upload-artifact@v3
         with:
           name: '${{ env.ARTIFACT_NAME }}-notarized'
