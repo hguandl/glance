@@ -46,7 +46,7 @@ jobs:
 
       - name: 'Sign app'
         if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
-        run: codesign --force --deep --options runtime --timestamp --sign "$secret.SIGN_IDENTITY" DerivedData/Build/Products/Release/Glance.app
+        run: codesign --force --deep --options runtime --timestamp --sign "$secrets.SIGN_IDENTITY" DerivedData/Build/Products/Release/Glance.app
 
       - name: 'Create build artifact'
         if: ${{ success() && (github.event_name != 'pull_request') }}
@@ -55,12 +55,11 @@ jobs:
           mv DerivedData/Build/Products/Release/Glance.app build
           ln -s /Applications build
           hdiutil create -volname "$ARTIFACT_NAME" -srcfolder build -ov -format UDBZ "$ARTIFACT_PKG"
-          codesign --sign "$secret.SIGN_IDENTITY" --timestamp "$ARTIFACT_PKG"
 
       - name: 'Sign image'
         if: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' && env.HAVE_CODESIGN_IDENTITY == 'true' }}
         run: |
-          codesign --sign "$secret.SIGN_IDENTITY" --timestamp "$ARTIFACT_PKG"
+          codesign --sign "$secrets.SIGN_IDENTITY" --timestamp "$ARTIFACT_PKG"
 
       - name: 'Upload build Artifact'
         if: ${{ success() && (github.event_name != 'pull_request') }}
@@ -106,7 +105,7 @@ jobs:
       - name: 'Notarize artifact'
         if: env.HAVE_NOTARY_IDENTITY == 'true'
         run: |
-          xcrun notarytool submit --apple-id "$secret.NOTARY_AAPL_ID" --password "$secret.NOTARY_PASSWD" --wait $ARTIFACT_PKG
+          xcrun notarytool submit --apple-id "$secrets.NOTARY_AAPL_ID" --password "$secrets.NOTARY_PASSWD" --wait $ARTIFACT_PKG
           xcrun stapler staple $ARTIFACT_PKG
 
       - name: 'Upload build artifact'
